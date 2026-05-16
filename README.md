@@ -1,16 +1,16 @@
 # Claude Access Monitor
 
-Real-time visibility into every tool call Claude Code makes — file reads, shell commands, web requests, and more — streamed to a hosted dashboard, isolated per user by API key.
+Real-time visibility into every tool call Claude Code makes — streamed to a hosted dashboard, isolated per user by API key.
 
 ```
-Your machine                          Hosted (you deploy once)
-────────────────────────────────      ──────────────────────────────────
-Claude Code                           backend/   (Railway / Render)
-  └── hook fires on every tool call        │
-        └── POST /events + API key ────────┤  stores per-key in SQLite
-                                           │
-                              frontend/   (Vercel / Netlify)
-                                ConnectScreen → live dashboard
+Your machine                           Free hosting
+──────────────────────────────         ───────────────────────────────────
+Claude Code                            Fly.io  (backend)
+  └── hook fires on every tool          stores events per API key in SQLite
+        └── POST /events + key ──────►         │
+                                               │ WebSocket push
+                                       Vercel  (frontend)
+                                         Connect screen → live dashboard
 ```
 
 ---
@@ -19,25 +19,23 @@ Claude Code                           backend/   (Railway / Render)
 
 ```
 claude-monitor/
-├── agent/                  pip-installable hook agent (users install this)
+├── agent/               pip package — users install this locally
 │   ├── pyproject.toml
 │   └── claude_monitor/
-│       ├── hook.py         Claude Code PreToolUse hook
-│       ├── cli.py          claude-monitor CLI
-│       ├── setup.py        wires the hook into ~/.claude/settings.json
-│       ├── viewer.py       fallback log viewer
-│       └── config.py       reads ~/.claude/claude_monitor.json
+│       ├── hook.py      Claude Code PreToolUse hook
+│       ├── cli.py       claude-monitor CLI
+│       ├── setup.py     wires hook into ~/.claude/settings.json
+│       ├── viewer.py    fallback log viewer
+│       └── config.py   reads ~/.claude/claude_monitor.json
 │
-├── backend/                FastAPI API server (deploy to Railway / Render)
+├── backend/             FastAPI server — deploy to Fly.io
 │   ├── server.py
 │   ├── requirements.txt
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── fly.toml
 │
-├── frontend/               React dashboard (deploy to Vercel / Netlify)
+├── frontend/            React app — deploy to Vercel
 │   ├── src/
-│   │   ├── App.jsx
-│   │   ├── api.js
-│   │   └── components/
 │   ├── .env.example
 │   └── vite.config.js
 │
@@ -46,62 +44,71 @@ claude-monitor/
 
 ---
 
-## 1 — Deploy the backend
+## 1 — Deploy the backend (Fly.io — free)
 
-### Railway (recommended)
+[fly.io](https://fly.io) free tier: always-on, WebSockets, persistent disk. No credit card for hobby use.
 
-1. Push this repo to GitHub.
-2. Create a new Railway project → **Deploy from GitHub repo**.
-3. Set the **Root Directory** to `backend`.
-4. Railway auto-detects the Dockerfile and deploys.
-5. Copy the public URL (e.g. `https://claude-monitor.up.railway.app`).
+### First time
 
-### Render
+```bash
+# Install the Fly CLI
+curl -L https://fly.io/install.sh | sh    # macOS / Linux
+# Windows: https://fly.io/docs/flyctl/install/
 
-1. New Web Service → connect your GitHub repo.
-2. Root Directory: `backend`
-3. Build Command: `pip install -r requirements.txt`
-4. Start Command: `uvicorn server:app --host 0.0.0.0 --port 8765`
+fly auth signup      # or fly auth login
 
-### Run locally
+cd backend
+fly launch           # detects Dockerfile, creates app — say NO to Postgres
+```
+
+When prompted for an app name, use something like `claude-monitor-backend`. Note the URL it gives you (e.g. `https://claude-monitor-backend.fly.dev`).
+
+```bash
+# Create a 1 GB persistent volume to store monitor.db
+fly volumes create monitor_data --size 1 --region iad
+
+# Deploy
+fly deploy
+```
+
+### Redeploy after changes
 
 ```bash
 cd backend
-pip install -r requirements.txt
-python server.py
-# API available at http://localhost:8765
+fly deploy
+```
+
+### Check logs
+
+```bash
+fly logs
 ```
 
 ---
 
-## 2 — Deploy the frontend
+## 2 — Deploy the frontend (Vercel — free)
 
-### Vercel (recommended)
+[vercel.com](https://vercel.com) free hobby plan: unlimited deploys, global CDN.
 
-1. Import your GitHub repo in Vercel.
-2. Set **Root Directory** to `frontend`.
-3. Add environment variable:
+### Setup
+
+1. Push this repo to GitHub.
+2. Go to [vercel.com/new](https://vercel.com/new) → import your GitHub repo.
+3. Set **Root Directory** to `frontend`.
+4. Add environment variable:
    ```
-   VITE_SERVER_URL=https://your-backend-url.railway.app
+   VITE_SERVER_URL = https://claude-monitor-backend.fly.dev
    ```
-4. Build Command: `npm run build`  
+5. Framework Preset: **Vite**  
+   Build Command: `npm run build`  
    Output Directory: `dist`
-5. Deploy — Vercel gives you a URL like `https://claude-monitor.vercel.app`.
+6. Click **Deploy**.
 
-### Netlify
+Vercel gives you a URL like `https://claude-monitor.vercel.app` — this is what you share with users.
 
-Same settings: root `frontend`, build `npm run build`, publish `dist`, add `VITE_SERVER_URL`.
+### Redeploy after changes
 
-### Run locally
-
-```bash
-cd frontend
-cp .env.example .env          # edit VITE_SERVER_URL
-npm install
-npm run dev                   # http://localhost:3000
-```
-
-> The Vite dev server proxies `/api` and `/ws` to `http://localhost:8765` automatically.
+Push to GitHub — Vercel redeploys automatically.
 
 ---
 
@@ -113,37 +120,37 @@ npm run dev                   # http://localhost:3000
 pip install claude-monitor-agent
 ```
 
-> Not on PyPI yet? Install directly from the repo:
+> Not on PyPI yet? Install from the repo:
 > ```bash
-> pip install git+https://github.com/your-org/claude-monitor.git#subdirectory=agent
+> pip install "git+https://github.com/your-org/claude-monitor.git#subdirectory=agent"
 > ```
 
 ### Generate an API key
 
 ```bash
 python -c "import uuid; print(uuid.uuid4())"
-# e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
+# e.g.  f47ac10b-58cc-4372-a567-0e02b2c3d479
 ```
+
+Each user needs their own key. Keep it private — it controls who sees your data.
 
 ### Configure
 
 ```bash
 claude-monitor setup \
-  --server-url https://your-backend-url.railway.app \
+  --server-url https://claude-monitor-backend.fly.dev \
   --key f47ac10b-58cc-4372-a567-0e02b2c3d479
 ```
 
 This writes `~/.claude/claude_monitor.json` and adds the hook to `~/.claude/settings.json`.
 
-### Restart Claude Code
-
-The hook activates after a restart. Every tool call will now stream to your dashboard.
+**Restart Claude Code** — the hook takes effect after a restart.
 
 ### Verify
 
 ```bash
 claude-monitor status        # show current config
-claude-monitor view          # view fallback log (when server unreachable)
+claude-monitor view          # view fallback log
 claude-monitor view --stats  # category breakdown
 ```
 
@@ -152,37 +159,41 @@ claude-monitor view --stats  # category breakdown
 ## 4 — Open the dashboard
 
 1. Go to your Vercel URL.
-2. Enter your backend URL and API key on the Connect screen.
-3. Click **Connect** — the dashboard loads your live event stream.
+2. On the Connect screen, enter:
+   - **Server URL**: `https://claude-monitor-backend.fly.dev`
+   - **API Key**: your UUID key
+3. Click **Connect**.
 
-Each API key sees only its own data. Share a key with a teammate to share a view.
+Each key sees only its own data.
 
 ---
 
-## Data isolation
+## How data isolation works
 
-Every event is tagged with the API key that posted it. Queries always filter by key — users can never see each other's data.
+Every event is tagged with the API key that posted it:
 
 ```
-POST /events          X-Api-Key: <key>  →  stored as owner_key = key
-GET  /api/events      X-Api-Key: <key>  →  returns only rows WHERE owner_key = key
-GET  /api/stats       X-Api-Key: <key>  →  stats only for that key
+POST /events  X-Api-Key: alice-key  →  stored with owner_key = "alice-key"
+GET  /api/*   X-Api-Key: alice-key  →  returns only rows WHERE owner_key = "alice-key"
 ```
 
-`GET /health` requires no key (used by the Connect screen to test reachability).
+`GET /health` needs no key — used by the Connect screen to verify the server is reachable.
 
 ---
 
-## Deployment summary
+## Fallback
 
-| Part | Host | Config |
-|---|---|---|
-| `backend/` | Railway / Render | Root dir: `backend` |
-| `frontend/` | Vercel / Netlify | Root dir: `frontend`, env: `VITE_SERVER_URL` |
-| `agent/` | Users' machines | `pip install` + `claude-monitor setup` |
+If the Fly.io backend is unreachable, the agent writes to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping events. View with `claude-monitor view`.
 
 ---
 
-## Fallback behaviour
+## Local development
 
-If the backend is unreachable, the agent writes events to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping them. View with `claude-monitor view`.
+```bash
+# Terminal 1 — backend
+cd backend && pip install -r requirements.txt && python server.py
+
+# Terminal 2 — frontend (proxies /api and /ws to localhost:8765)
+cd frontend && npm install && npm run dev
+# open http://localhost:3000
+```

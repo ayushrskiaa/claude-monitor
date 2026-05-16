@@ -10,6 +10,7 @@ Run locally:  python server.py
 
 import asyncio
 import json
+import os
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 SCRIPT_DIR = Path(__file__).parent
-DB_PATH    = SCRIPT_DIR / "monitor.db"
+DB_PATH    = Path(os.getenv("DATA_DIR", str(SCRIPT_DIR))) / "monitor.db"
 
 _db_lock = threading.Lock()
 
