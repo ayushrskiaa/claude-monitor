@@ -1,0 +1,35 @@
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Runtime data (created by the server, not committed)
+backend/monitor.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env files (contain secrets)
+.env
+.env.local
+.env.production
+frontend/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

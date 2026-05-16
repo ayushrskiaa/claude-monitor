@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-monitor-agent"
+version = "1.0.0"
+description = "Claude Code monitoring agent — streams tool usage to a remote dashboard"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+claude-monitor = "claude_monitor.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["claude_monitor"]
