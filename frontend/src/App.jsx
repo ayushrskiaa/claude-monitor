@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { apiFetch, apiBase } from './api'
+import { apiFetch, apiBase, apiHeaders } from './api'
 import Header from './components/Header'
 import StatsRow from './components/StatsRow'
 import FilterBar from './components/FilterBar'
@@ -94,23 +94,39 @@ export default function App() {
     return () => clearInterval(id)
   }, [loadStats])
 
+  // Events refresh every 30s as WebSocket fallback
+  useEffect(() => {
+    const id = setInterval(() => loadEvents(0, true), 30_000)
+    return () => clearInterval(id)
+  }, [loadEvents])
+
   // ── WebSocket ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     let ws
     let reconnectTimer
+    let closed = false
 
     function connect() {
-      const url = apiBase().replace(/^http/, 'ws') + '/ws'
+      if (closed) return
+      const key = localStorage.getItem('cam_key') || ''
+      const url = apiBase().replace(/^http/, 'ws') + '/ws?key=' + encodeURIComponent(key)
       ws = new WebSocket(url)
 
-      ws.onopen  = () => setWsStatus('live')
-      ws.onerror = () => setWsStatus('error')
+      ws.onopen  = () => {
+        if (!closed) {
+          setWsStatus('live')
+          loadEvents(0, true)  // catch up on events missed while WS was disconnected
+        }
+      }
+      ws.onerror = () => { if (!closed) setWsStatus('error') }
       ws.onclose = () => {
+        if (closed) return
         setWsStatus('error')
         reconnectTimer = setTimeout(connect, 3000)
       }
       ws.onmessage = (msg) => {
+        if (closed) return
         try {
           const { type, data: ev } = JSON.parse(msg.data)
           if (type !== 'event') return
@@ -135,10 +151,22 @@ export default function App() {
 
     connect()
     return () => {
+      closed = true
       clearTimeout(reconnectTimer)
-      if (ws) { ws.onclose = null; ws.close() }
+      if (ws) {
+        ws.onclose = null
+        ws.onerror = null
+        ws.onmessage = null
+        if (ws.readyState === WebSocket.CONNECTING) {
+          // Let it finish opening then close cleanly — avoids "closed before established" warning
+          ws.onopen = () => ws.close()
+        } else {
+          ws.onopen = null
+          ws.close()
+        }
+      }
     }
-  }, [settingsVer, loadStats]) // reconnect when settings change
+  }, [settingsVer, loadStats, loadEvents]) // reconnect when settings change
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -157,11 +185,15 @@ export default function App() {
     setSettingsOpen(false)
   }
 
-  function handleExport(fmt) {
-    Object.assign(document.createElement('a'), {
-      href: `${apiBase()}/api/export?fmt=${fmt}`,
-      download: `claude_events.${fmt}`,
-    }).click()
+  async function handleExport(fmt) {
+    try {
+      const res = await fetch(`${apiBase()}/api/export?fmt=${fmt}`, { headers: apiHeaders() })
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      Object.assign(document.createElement('a'), { href: url, download: `claude_events.${fmt}` }).click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch {}
   }
 
   if (!connected) {

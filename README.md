@@ -1,16 +1,16 @@
 # Claude Access Monitor
 
-Real-time visibility into every tool call Claude Code makes — streamed to a hosted dashboard, isolated per user by API key.
+Real-time visibility into every tool call Claude Code makes — streamed to a dashboard, isolated per user by API key.
 
 ```
-Your machine                           Free hosting
+Your machine                           Hosting
 ──────────────────────────────         ───────────────────────────────────
-Claude Code                            Fly.io  (backend)
-  └── hook fires on every tool          stores events per API key in SQLite
+Claude Code                            Backend (FastAPI + SQLite)
+  └── hook fires on every tool          stores events per API key
         └── POST /events + key ──────►         │
                                                │ WebSocket push
-                                       Vercel  (frontend)
-                                         Connect screen → live dashboard
+                                       Frontend (React + Vite)
+                                         Connect screen -> live dashboard
 ```
 
 ---
@@ -19,7 +19,7 @@ Claude Code                            Fly.io  (backend)
 
 ```
 claude-monitor/
-├── agent/               pip package — users install this locally
+├── agent/               pip package — install locally
 │   ├── pyproject.toml
 │   └── claude_monitor/
 │       ├── hook.py      Claude Code PreToolUse hook
@@ -28,13 +28,13 @@ claude-monitor/
 │       ├── viewer.py    fallback log viewer
 │       └── config.py   reads ~/.claude/claude_monitor.json
 │
-├── backend/             FastAPI server — deploy to Fly.io
+├── backend/             FastAPI server
 │   ├── server.py
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── fly.toml
 │
-├── frontend/            React app — deploy to Vercel
+├── frontend/            React app
 │   ├── src/
 │   ├── .env.example
 │   └── vite.config.js
@@ -44,127 +44,115 @@ claude-monitor/
 
 ---
 
-## 1 — Deploy the backend (Fly.io — free)
+## Run locally
 
-[fly.io](https://fly.io) free tier: always-on, WebSockets, persistent disk. No credit card for hobby use.
-
-### First time
-
-```bash
-# Install the Fly CLI
-curl -L https://fly.io/install.sh | sh    # macOS / Linux
-# Windows: https://fly.io/docs/flyctl/install/
-
-fly auth signup      # or fly auth login
-
-cd backend
-fly launch           # detects Dockerfile, creates app — say NO to Postgres
-```
-
-When prompted for an app name, use something like `claude-monitor-backend`. Note the URL it gives you (e.g. `https://claude-monitor-backend.fly.dev`).
-
-```bash
-# Create a 1 GB persistent volume to store monitor.db
-fly volumes create monitor_data --size 1 --region iad
-
-# Deploy
-fly deploy
-```
-
-### Redeploy after changes
+### 1 — Start the backend
 
 ```bash
 cd backend
-fly deploy
+pip install -r requirements.txt
+python server.py
+# runs on http://localhost:8765
 ```
 
-### Check logs
+### 2 — Start the frontend
 
 ```bash
-fly logs
+cd frontend
+npm install
+npm run dev
+# open http://localhost:3000
 ```
 
----
-
-## 2 — Deploy the frontend (Vercel — free)
-
-[vercel.com](https://vercel.com) free hobby plan: unlimited deploys, global CDN.
-
-### Setup
-
-1. Push this repo to GitHub.
-2. Go to [vercel.com/new](https://vercel.com/new) → import your GitHub repo.
-3. Set **Root Directory** to `frontend`.
-4. Add environment variable:
-   ```
-   VITE_SERVER_URL = https://claude-monitor-backend.fly.dev
-   ```
-5. Framework Preset: **Vite**  
-   Build Command: `npm run build`  
-   Output Directory: `dist`
-6. Click **Deploy**.
-
-Vercel gives you a URL like `https://claude-monitor.vercel.app` — this is what you share with users.
-
-### Redeploy after changes
-
-Push to GitHub — Vercel redeploys automatically.
-
----
-
-## 3 — Install the agent (users do this once)
-
-### Install
+### 3 — Install the agent
 
 ```bash
-pip install claude-monitor-agent
+cd agent
+pip install -e .
 ```
 
-> Not on PyPI yet? Install from the repo:
-> ```bash
-> pip install "git+https://github.com/your-org/claude-monitor.git#subdirectory=agent"
+> **Windows:** if `claude-monitor` is not found after install, add the Scripts folder to PATH:
+> ```powershell
+> [Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";C:\Users\<you>\AppData\Roaming\Python\Python3XX\Scripts", "User")
 > ```
 
-### Generate an API key
+### 4 — Generate an API key
 
 ```bash
 python -c "import uuid; print(uuid.uuid4())"
-# e.g.  f47ac10b-58cc-4372-a567-0e02b2c3d479
+# e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
 ```
 
-Each user needs their own key. Keep it private — it controls who sees your data.
+Each user needs their own key. Keep it private.
 
-### Configure
+### 5 — Configure the agent
 
 ```bash
 claude-monitor setup \
-  --server-url https://claude-monitor-backend.fly.dev \
+  --server-url http://localhost:8765 \
   --key f47ac10b-58cc-4372-a567-0e02b2c3d479
 ```
 
-This writes `~/.claude/claude_monitor.json` and adds the hook to `~/.claude/settings.json`.
+This writes `~/.claude/claude_monitor.json` and registers the hook in `~/.claude/settings.json`.
 
 **Restart Claude Code** — the hook takes effect after a restart.
 
-### Verify
+### 6 — Open the dashboard
 
-```bash
-claude-monitor status        # show current config
-claude-monitor view          # view fallback log
-claude-monitor view --stats  # category breakdown
-```
+1. Go to `http://localhost:3000`
+2. Enter **Server URL**: `http://localhost:8765`
+3. Enter **API Key**: your UUID
+4. Click **Connect**
 
 ---
 
-## 4 — Open the dashboard
+## Deploy (hosted)
 
-1. Go to your Vercel URL.
-2. On the Connect screen, enter:
-   - **Server URL**: `https://claude-monitor-backend.fly.dev`
-   - **API Key**: your UUID key
-3. Click **Connect**.
+### Backend — Fly.io
 
-Each key sees only its own data.
+Fly.io requires a credit card for verification (free tier, no charge for small usage).
+
+```bash
+cd backend
+
+# Create app (uses fly.toml config)
+fly apps create <your-app-name>
+
+# Create persistent volume for SQLite
+fly volumes create monitor_data --size 1 --region iad --app <your-app-name>
+
+# Deploy
+fly deploy --app <your-app-name>
+```
+
+Your backend URL: `https://<your-app-name>.fly.dev`
+
+### Backend — Cloudflare Tunnel (free, no credit card)
+
+Run the backend locally and expose it publicly via Cloudflare:
+
+```bash
+# Terminal 1 — run backend
+cd backend && python server.py
+
+# Terminal 2 — expose it
+cloudflared tunnel --url http://localhost:8765
+```
+
+Cloudflare prints a public HTTPS URL — use that as your server URL.
+Download cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+
+### Frontend — Vercel
+
+1. Push this repo to GitHub.
+2. Go to [vercel.com/new](https://vercel.com/new) → import your repo.
+3. Set **Root Directory** to `frontend`.
+4. Add environment variable:
+   ```
+   VITE_SERVER_URL = https://<your-backend-url>
+   ```
+5. Framework Preset: **Vite** | Build: `npm run build` | Output: `dist`
+6. Click **Deploy**.
 
 ---
 
@@ -173,27 +161,20 @@ Each key sees only its own data.
 Every event is tagged with the API key that posted it:
 
 ```
-POST /events  X-Api-Key: alice-key  →  stored with owner_key = "alice-key"
-GET  /api/*   X-Api-Key: alice-key  →  returns only rows WHERE owner_key = "alice-key"
+POST /events  X-Api-Key: alice-key  ->  stored with owner_key = "alice-key"
+GET  /api/*   X-Api-Key: alice-key  ->  returns only rows WHERE owner_key = "alice-key"
 ```
 
-`GET /health` needs no key — used by the Connect screen to verify the server is reachable.
+`GET /health` requires no key — used by the Connect screen to verify connectivity.
 
 ---
 
 ## Fallback
 
-If the Fly.io backend is unreachable, the agent writes to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping events. View with `claude-monitor view`.
-
----
-
-## Local development
+If the backend is unreachable, the agent writes to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping events. View with:
 
 ```bash
-# Terminal 1 — backend
-cd backend && pip install -r requirements.txt && python server.py
-
-# Terminal 2 — frontend (proxies /api and /ws to localhost:8765)
-cd frontend && npm install && npm run dev
-# open http://localhost:3000
+claude-monitor view          # view fallback log
+claude-monitor view --stats  # category breakdown
+claude-monitor status        # show current config
 ```

@@ -1,5 +1,5 @@
 # fly.toml — Fly.io deployment config for claude-monitor backend
-app = "claude-monitor-backend"   # change to your app name after `fly launch`
+app = "claude-monitor-ayush"
 primary_region = "iad"
 
 [build]

@@ -77,7 +77,20 @@ def fallback_write(entry: dict):
         f.write(json.dumps(entry) + "\n")
 
 
+DEBUG_LOG = Path.home() / ".claude" / "claude_monitor_debug.log"
+
+
+def _debug(msg: str):
+    try:
+        DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} {msg}\n")
+    except Exception:
+        pass
+
+
 def main():
+    _debug("hook invoked")
     config      = load_config()
     server_url  = config.get("server_url", "")
     api_key     = config.get("api_key", "")
@@ -88,11 +101,13 @@ def main():
     ])
 
     raw = sys.stdin.buffer.read().decode("utf-8-sig").strip()
+    _debug(f"stdin length={len(raw)}")
     if not raw:
         sys.exit(0)
     try:
         event = json.loads(raw)
     except json.JSONDecodeError:
+        _debug(f"json parse error: {raw[:200]}")
         sys.exit(0)
 
     tool       = event.get("tool_name", "Unknown")
@@ -119,8 +134,10 @@ def main():
 
     if server_url and api_key:
         sent = post(server_url, api_key, entry, timeout)
+        _debug(f"POST tool={tool} sent={sent} server={server_url}")
     else:
         sent = False
+        _debug(f"no server_url or api_key configured")
 
     if not sent:
         fallback_write(entry)

@@ -251,7 +251,7 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     """No auth — used by the frontend to test connectivity."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": "ws-queryparams-fix"}
 
 
 @app.post("/events")
@@ -311,16 +311,17 @@ async def export_events(owner: str = Depends(require_key), fmt: str = "jsonl"):
 
 
 @app.websocket("/ws")
-async def ws_endpoint(ws: WebSocket, x_api_key: Optional[str] = Header(None)):
-    if not x_api_key:
+async def ws_endpoint(ws: WebSocket):
+    key = ws.query_params.get("key")
+    if not key:
         await ws.close(code=4001)
         return
-    await manager.connect(ws, x_api_key)
+    await manager.connect(ws, key)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(ws, x_api_key)
+        manager.disconnect(ws, key)
 
 
 if __name__ == "__main__":

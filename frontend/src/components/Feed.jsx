@@ -50,7 +50,7 @@ export default function Feed({ events, total, offset, onLoadMore, onEventClick }
         ) : (
           events.map((ev, i) => (
             <EventRow
-              key={ev.id ?? ev._fresh ? `ws-${ev.timestamp}-${ev.tool}-${i}` : i}
+              key={ev.id != null ? String(ev.id) : `ws-${ev.timestamp}-${ev.tool}-${i}`}
               event={ev}
               onClick={onEventClick}
             />
