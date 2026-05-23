@@ -22,20 +22,37 @@ claude-monitor/
 ├── agent/               pip package — install locally
 │   ├── pyproject.toml
 │   └── claude_monitor/
-│       ├── hook.py      Claude Code PreToolUse hook
-│       ├── cli.py       claude-monitor CLI
+│       ├── hook.py      Claude Code PreToolUse hook (run by Claude on every tool call)
+│       ├── cli.py       claude-monitor CLI (setup / view / status)
 │       ├── setup.py     wires hook into ~/.claude/settings.json
 │       ├── viewer.py    fallback log viewer
-│       └── config.py   reads ~/.claude/claude_monitor.json
+│       └── config.py   reads/writes ~/.claude/claude_monitor.json
 │
 ├── backend/             FastAPI server
-│   ├── server.py
+│   ├── server.py        multi-tenant API + WebSocket + SQLite
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── fly.toml
 │
 ├── frontend/            React app
 │   ├── src/
+│   │   ├── App.jsx      root component — state, WS, data fetching
+│   │   ├── api.js       fetch helpers (reads server URL + key from localStorage)
+│   │   ├── constants.js category colours and labels
+│   │   ├── utils.js     formatting helpers
+│   │   └── components/
+│   │       ├── ConnectScreen.jsx   first-run login form
+│   │       ├── Header.jsx          WS status dot + export dropdown
+│   │       ├── StatsRow.jsx        total / flagged / sessions / top tool
+│   │       ├── FilterBar.jsx       session / category / flagged / search filters
+│   │       ├── Feed.jsx            scrollable event list with Load More
+│   │       ├── SidePanel.jsx       charts + recent alerts
+│   │       ├── CategoryChart.jsx   recharts donut
+│   │       ├── TimelineChart.jsx   recharts bar (events/hour, 24 h)
+│   │       ├── TopTools.jsx        horizontal bar rows
+│   │       ├── AlertsList.jsx      recent flagged events
+│   │       ├── DetailModal.jsx     raw JSON for a selected event
+│   │       └── SettingsModal.jsx   edit server URL / key in-app
 │   ├── .env.example
 │   └── vite.config.js
 │
@@ -56,6 +73,8 @@ python server.py
 ```
 
 ### 2 — Start the frontend
+
+Requires **Node.js 18+**. The project uses Vite 4.x (pinned for Node.js compatibility).
 
 ```bash
 cd frontend
@@ -163,18 +182,34 @@ Every event is tagged with the API key that posted it:
 ```
 POST /events  X-Api-Key: alice-key  ->  stored with owner_key = "alice-key"
 GET  /api/*   X-Api-Key: alice-key  ->  returns only rows WHERE owner_key = "alice-key"
+WS  /ws?key=alice-key              ->  receives only alice's events in real-time
 ```
 
 `GET /health` requires no key — used by the Connect screen to verify connectivity.
 
 ---
 
-## Fallback
+## Fallback & debugging
 
-If the backend is unreachable, the agent writes to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping events. View with:
+If the backend is unreachable, the agent writes to `~/.claude/claude_monitor_fallback.jsonl` instead of dropping events.
 
 ```bash
 claude-monitor view          # view fallback log
+claude-monitor view -f       # flagged events only
 claude-monitor view --stats  # category breakdown
 claude-monitor status        # show current config
 ```
+
+For hook-level debugging, check `~/.claude/claude_monitor_debug.log` — the hook appends a line for every Claude Code tool call it processes.
+
+---
+
+## Sensitive file detection
+
+The hook automatically flags events that touch paths matching these patterns:
+
+```
+\.env  id_rsa  \.ssh  credentials  token  password  \.aws  \.pem
+```
+
+Flagged events appear highlighted in the dashboard and are surfaced in the **Recent Alerts** panel. You can customise the patterns in `~/.claude/claude_monitor.json` under `sensitive_patterns`.
